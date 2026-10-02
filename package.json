@@ -1,0 +1,15 @@
+{
+  "name": "sample-shop",
+  "version": "1.0.0",
+  "description": "Freesia demo shop: an always-on Node.js web service on port 3000",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -43,7 +43,7 @@ function page() {
 <body>
 <header>
   <h1>🌼 Freesia Shop</h1>
-  <p>Freesia로 배포된 쇼핑몰 서비스입니다. 오늘의 추천: 프리지아 꽃다발 🌼</p>
+  <p>Freesia로 배포된 쇼핑몰 서비스입니다. 오늘의 추천: 향기 캔들 🕯️</p>
 </header>
 <ul>${cards}</ul>
 <footer>sample-shop · Node.js ${process.version}</footer>

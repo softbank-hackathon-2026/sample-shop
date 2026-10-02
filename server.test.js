@@ -9,13 +9,18 @@ test("serves the shop page, health check and product list", async (t) => {
 
   const home = await fetch(base + "/");
   assert.strictEqual(home.status, 200);
-  assert.match(await home.text(), /Freesia Shop/);
+  const html = await home.text();
+  assert.match(html, /Freesia Shop/);
+  // The browser loads the products, so a shared load balancer can send /api/* to shop-api instead.
+  assert.match(html, /fetch\("\/api\/products"\)/);
 
   const health = await fetch(base + "/health");
   assert.deepStrictEqual([health.status, await health.json()], [200, { status: "ok" }]);
 
-  const products = await (await fetch(base + "/api/products")).json();
-  assert.ok(products.length > 0);
+  const res = await fetch(base + "/api/products");
+  assert.strictEqual(res.headers.get("x-served-by"), "sample-shop");
+  const products = await res.json();
+  assert.ok(products.length > 0 && products.every((p) => p.name && p.price && p.emoji));
 
   assert.strictEqual((await fetch(base + "/nope")).status, 404);
   assert.strictEqual((await fetch(base + "/", { method: "POST" })).status, 405);

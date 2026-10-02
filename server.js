@@ -12,14 +12,10 @@ const products = [
   { id: 6, name: "선물 포장", price: 3000, emoji: "🎁" },
 ];
 
-const won = (n) => n.toLocaleString("ko-KR") + "원";
-
+// The page loads products from /api/products in the browser. Deployed alone, that is this server.
+// Behind a shared load balancer that sends /api/* to shop-api, the same page shows shop-api's data.
+// X-Served-By tells the page which server answered.
 function page() {
-  const cards = products
-    .map(
-      (p) => `<li><span class="emoji">${p.emoji}</span><strong>${p.name}</strong><span class="price">${won(p.price)}</span></li>`,
-    )
-    .join("");
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -45,8 +41,31 @@ function page() {
   <h1>🌼 Freesia Shop</h1>
   <p>Freesia로 배포된 쇼핑몰 서비스입니다. 오늘의 추천: 향기 캔들 🕯️</p>
 </header>
-<ul>${cards}</ul>
-<footer>sample-shop · Node.js ${process.version}</footer>
+<ul id="products"><li>상품을 불러오는 중입니다.</li></ul>
+<footer>sample-shop · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
+<script>
+  const won = (n) => n.toLocaleString("ko-KR") + "원";
+  const list = document.getElementById("products");
+  fetch("/api/products")
+    .then((r) => {
+      if (!r.ok) throw new Error(r.status);
+      document.getElementById("source").textContent = r.headers.get("X-Served-By") || "알 수 없음";
+      return r.json();
+    })
+    .then((products) => {
+      list.replaceChildren(...products.map((p) => {
+        const li = document.createElement("li");
+        for (const [cls, text] of [["emoji", p.emoji], ["", p.name], ["price", won(p.price)]]) {
+          const el = document.createElement(cls ? "span" : "strong");
+          if (cls) el.className = cls;
+          el.textContent = text;
+          li.append(el);
+        }
+        return li;
+      }));
+    })
+    .catch(() => { list.innerHTML = "<li>상품 정보를 불러오지 못했습니다.</li>"; });
+</script>
 </body>
 </html>`;
 }
@@ -60,7 +79,9 @@ function handle(req, res) {
   } else if (path === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "ok" }));
   } else if (path === "/api/products") {
-    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(products));
+    res
+      .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": "sample-shop" })
+      .end(JSON.stringify(products));
   } else {
     res.writeHead(404, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "not_found" }));
   }

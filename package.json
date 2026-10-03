@@ -6,6 +6,8 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
+    "start:local": "node --env-file=.env server.js",
+    "check:onprem": "node --env-file=.env server.js --check-onprem",
     "test": "node --test"
   },
   "engines": {

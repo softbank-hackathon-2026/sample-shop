@@ -2,9 +2,6 @@
 const http = require("node:http");
 
 const PORT = Number(process.env.PORT) || 3000;
-// On-prem demo: products come from shop-api on the on-prem VM (reached over the ECS-to-on-prem link).
-// If it does not answer, the shop serves its own list, and the page footer shows "sample-shop".
-const BACKEND_URL = process.env.BACKEND_URL ?? "http://10.0.1.152:8080";
 
 const products = [
   { id: 1, name: "프리지아 꽃다발", price: 32000, emoji: "💐" },
@@ -73,18 +70,86 @@ function page() {
 </html>`;
 }
 
-async function fromBackend() {
-  if (!BACKEND_URL) throw new Error("no backend");
-  const r = await fetch(BACKEND_URL + "/api/products", { signal: AbortSignal.timeout(2000) });
-  if (!r.ok) throw new Error(r.status);
-  return r.text();
+// The on-prem connection settings, shared by the health check and the product list.
+// Returns { error } when they are missing or invalid.
+function onPremConfig() {
+  const { ONPREM_API_URL, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET } = process.env;
+  const mode = process.env.ONPREM_CONNECTION_MODE || "access";
+  if (!ONPREM_API_URL?.trim() || (mode === "access" &&
+      ![CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET].every((value) => value?.trim()))) {
+    return { error: "onprem_not_configured" };
+  }
+
+  try {
+    const url = new URL(ONPREM_API_URL);
+    const protocols = mode === "private" ? ["http:", "https:"] : ["https:"];
+    if (!["access", "private"].includes(mode) || !protocols.includes(url.protocol) || url.username || url.password) {
+      throw new Error("invalid_url");
+    }
+  } catch {
+    return { error: "onprem_invalid_configuration" };
+  }
+
+  return {
+    url: ONPREM_API_URL,
+    headers: mode === "access" ? {
+      "CF-Access-Client-Id": CF_ACCESS_CLIENT_ID,
+      "CF-Access-Client-Secret": CF_ACCESS_CLIENT_SECRET,
+    } : {},
+  };
 }
 
-function send(res, body, servedBy) {
-  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": servedBy }).end(body);
+// Products from shop-api on the on-prem VM: same host and Access headers as ONPREM_API_URL, path /api/products.
+// Throws when on-prem is not configured or does not answer, so the caller serves the local list.
+async function onPremProducts() {
+  const config = onPremConfig();
+  if (config.error) throw new Error(config.error);
+  const upstream = await fetch(new URL("/api/products", config.url), {
+    headers: config.headers,
+    redirect: "manual",
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!upstream.ok) throw new Error(`onprem_status_${upstream.status}`);
+  const list = await upstream.json();
+  if (!Array.isArray(list)) throw new Error("onprem_bad_products");
+  return list;
 }
 
-function handle(req, res) {
+async function checkOnPrem() {
+  const config = onPremConfig();
+  if (config.error) {
+    return { status: 503, body: { connected: false, error: config.error } };
+  }
+
+  try {
+    const upstream = await fetch(config.url, {
+      headers: config.headers,
+      // Never forward Access credentials to a redirect destination or a login page.
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    await upstream.body?.cancel();
+
+    const body = { connected: upstream.ok, upstreamStatus: upstream.status };
+    if (!upstream.ok) {
+      body.error = upstream.status >= 300 && upstream.status < 400
+        ? "onprem_redirect"
+        : "onprem_upstream_error";
+    }
+    return { status: upstream.ok ? 200 : 502, body };
+  } catch (error) {
+    const timedOut = error.name === "TimeoutError" || error.name === "AbortError";
+    const errorCode = error.cause?.code || error.code;
+    let reason = timedOut ? "onprem_timeout" : "onprem_request_failed";
+    if (errorCode === "ENETUNREACH" || errorCode === "EHOSTUNREACH") reason = "onprem_network_unreachable";
+    return {
+      status: timedOut ? 504 : 502,
+      body: { connected: false, error: reason },
+    };
+  }
+}
+
+async function handle(req, res) {
   const path = new URL(req.url, "http://localhost").pathname;
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405, { Allow: "GET, HEAD" }).end();
@@ -92,10 +157,21 @@ function handle(req, res) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(page());
   } else if (path === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "ok" }));
+  } else if (path === "/api/onprem/health") {
+    const { status, body } = await checkOnPrem();
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    }).end(JSON.stringify(body));
   } else if (path === "/api/products") {
-    fromBackend()
-      .then((body) => send(res, body, "shop-api"))
-      .catch(() => send(res, JSON.stringify(products), "sample-shop"));
+    // The page footer shows X-Served-By, so the demo can tell whether the list came from the VM.
+    const [list, servedBy] = await onPremProducts().then(
+      (list) => [list, "shop-api (on-prem)"],
+      () => [products, "sample-shop"],
+    );
+    res
+      .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": servedBy })
+      .end(JSON.stringify(list));
   } else {
     res.writeHead(404, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "not_found" }));
   }
@@ -104,9 +180,16 @@ function handle(req, res) {
 const server = http.createServer(handle);
 
 if (require.main === module) {
-  server.listen(PORT, () => console.log(`sample-shop listening on ${PORT}`));
-  // ECS stops tasks with SIGTERM; close cleanly so in-flight requests finish.
-  process.on("SIGTERM", () => server.close(() => process.exit(0)));
+  if (process.argv.includes("--check-onprem")) {
+    checkOnPrem().then(({ status, body }) => {
+      console.log(JSON.stringify(body, null, 2));
+      if (status !== 200) process.exitCode = 1;
+    });
+  } else {
+    server.listen(PORT, () => console.log(`sample-shop listening on ${PORT}`));
+    // ECS stops tasks with SIGTERM; close cleanly so in-flight requests finish.
+    process.on("SIGTERM", () => server.close(() => process.exit(0)));
+  }
 }
 
 module.exports = { server };

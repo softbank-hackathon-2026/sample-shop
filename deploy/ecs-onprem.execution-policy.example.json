@@ -1,0 +1,13 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "ssm:GetParameters",
+      "Resource": [
+        "arn:aws:ssm:ap-northeast-2:921810471078:parameter/sample-shop/CF_ACCESS_CLIENT_ID",
+        "arn:aws:ssm:ap-northeast-2:921810471078:parameter/sample-shop/CF_ACCESS_CLIENT_SECRET"
+      ]
+    }
+  ]
+}

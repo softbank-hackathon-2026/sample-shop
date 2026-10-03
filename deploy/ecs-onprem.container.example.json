@@ -1,0 +1,22 @@
+{
+  "environment": [
+    {
+      "name": "ONPREM_CONNECTION_MODE",
+      "value": "access"
+    },
+    {
+      "name": "ONPREM_API_URL",
+      "value": "https://vpn.howon.me/api/health"
+    }
+  ],
+  "secrets": [
+    {
+      "name": "CF_ACCESS_CLIENT_ID",
+      "valueFrom": "arn:aws:ssm:ap-northeast-2:921810471078:parameter/sample-shop/CF_ACCESS_CLIENT_ID"
+    },
+    {
+      "name": "CF_ACCESS_CLIENT_SECRET",
+      "valueFrom": "arn:aws:ssm:ap-northeast-2:921810471078:parameter/sample-shop/CF_ACCESS_CLIENT_SECRET"
+    }
+  ]
+}

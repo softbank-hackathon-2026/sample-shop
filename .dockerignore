@@ -1,4 +1,7 @@
 .git
+.env
+.env.*
+.gitignore
 node_modules
 *.test.js
 README.md

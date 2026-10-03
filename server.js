@@ -70,7 +70,56 @@ function page() {
 </html>`;
 }
 
-function handle(req, res) {
+async function checkOnPrem() {
+  const { ONPREM_API_URL, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET } = process.env;
+  const mode = process.env.ONPREM_CONNECTION_MODE || "access";
+  if (!ONPREM_API_URL?.trim() || (mode === "access" &&
+      ![CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET].every((value) => value?.trim()))) {
+    return { status: 503, body: { connected: false, error: "onprem_not_configured" } };
+  }
+
+  try {
+    const url = new URL(ONPREM_API_URL);
+    const protocols = mode === "private" ? ["http:", "https:"] : ["https:"];
+    if (!["access", "private"].includes(mode) || !protocols.includes(url.protocol) || url.username || url.password) {
+      throw new Error("invalid_url");
+    }
+  } catch {
+    return { status: 503, body: { connected: false, error: "onprem_invalid_configuration" } };
+  }
+
+  try {
+    const upstream = await fetch(ONPREM_API_URL, {
+      headers: mode === "access" ? {
+        "CF-Access-Client-Id": CF_ACCESS_CLIENT_ID,
+        "CF-Access-Client-Secret": CF_ACCESS_CLIENT_SECRET,
+      } : {},
+      // Never forward Access credentials to a redirect destination or a login page.
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    await upstream.body?.cancel();
+
+    const body = { connected: upstream.ok, upstreamStatus: upstream.status };
+    if (!upstream.ok) {
+      body.error = upstream.status >= 300 && upstream.status < 400
+        ? "onprem_redirect"
+        : "onprem_upstream_error";
+    }
+    return { status: upstream.ok ? 200 : 502, body };
+  } catch (error) {
+    const timedOut = error.name === "TimeoutError" || error.name === "AbortError";
+    const errorCode = error.cause?.code || error.code;
+    let reason = timedOut ? "onprem_timeout" : "onprem_request_failed";
+    if (errorCode === "ENETUNREACH" || errorCode === "EHOSTUNREACH") reason = "onprem_network_unreachable";
+    return {
+      status: timedOut ? 504 : 502,
+      body: { connected: false, error: reason },
+    };
+  }
+}
+
+async function handle(req, res) {
   const path = new URL(req.url, "http://localhost").pathname;
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405, { Allow: "GET, HEAD" }).end();
@@ -78,6 +127,12 @@ function handle(req, res) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(page());
   } else if (path === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "ok" }));
+  } else if (path === "/api/onprem/health") {
+    const { status, body } = await checkOnPrem();
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    }).end(JSON.stringify(body));
   } else if (path === "/api/products") {
     res
       .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": "sample-shop" })
@@ -90,9 +145,16 @@ function handle(req, res) {
 const server = http.createServer(handle);
 
 if (require.main === module) {
-  server.listen(PORT, () => console.log(`sample-shop listening on ${PORT}`));
-  // ECS stops tasks with SIGTERM; close cleanly so in-flight requests finish.
-  process.on("SIGTERM", () => server.close(() => process.exit(0)));
+  if (process.argv.includes("--check-onprem")) {
+    checkOnPrem().then(({ status, body }) => {
+      console.log(JSON.stringify(body, null, 2));
+      if (status !== 200) process.exitCode = 1;
+    });
+  } else {
+    server.listen(PORT, () => console.log(`sample-shop listening on ${PORT}`));
+    // ECS stops tasks with SIGTERM; close cleanly so in-flight requests finish.
+    process.on("SIGTERM", () => server.close(() => process.exit(0)));
+  }
 }
 
 module.exports = { server };

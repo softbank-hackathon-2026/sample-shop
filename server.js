@@ -2,6 +2,9 @@
 const http = require("node:http");
 
 const PORT = Number(process.env.PORT) || 3000;
+// On-prem demo: products come from shop-api on the on-prem VM (reached over the ECS-to-on-prem link).
+// If it does not answer, the shop serves its own list, and the page footer shows "sample-shop".
+const BACKEND_URL = process.env.BACKEND_URL ?? "http://10.0.1.152:8080";
 
 const products = [
   { id: 1, name: "프리지아 꽃다발", price: 32000, emoji: "💐" },
@@ -70,6 +73,17 @@ function page() {
 </html>`;
 }
 
+async function fromBackend() {
+  if (!BACKEND_URL) throw new Error("no backend");
+  const r = await fetch(BACKEND_URL + "/api/products", { signal: AbortSignal.timeout(2000) });
+  if (!r.ok) throw new Error(r.status);
+  return r.text();
+}
+
+function send(res, body, servedBy) {
+  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": servedBy }).end(body);
+}
+
 function handle(req, res) {
   const path = new URL(req.url, "http://localhost").pathname;
   if (req.method !== "GET" && req.method !== "HEAD") {
@@ -79,9 +93,9 @@ function handle(req, res) {
   } else if (path === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "ok" }));
   } else if (path === "/api/products") {
-    res
-      .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": "sample-shop" })
-      .end(JSON.stringify(products));
+    fromBackend()
+      .then((body) => send(res, body, "shop-api"))
+      .catch(() => send(res, JSON.stringify(products), "sample-shop"));
   } else {
     res.writeHead(404, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "not_found" }));
   }

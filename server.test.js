@@ -1,5 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert");
+const http = require("node:http");
+
+// Stand-in for shop-api on the VM. Set before server.js loads.
+const backend = http.createServer((req, res) =>
+  res.writeHead(200, { "Content-Type": "application/json" }).end('[{"id":9,"name":"VM","price":1,"emoji":"x"}]'));
+process.env.BACKEND_URL = "http://127.0.0.1:39123";
 const { server } = require("./server");
 
 test("serves the shop page, health check and product list", async (t) => {
@@ -24,4 +30,20 @@ test("serves the shop page, health check and product list", async (t) => {
 
   assert.strictEqual((await fetch(base + "/nope")).status, 404);
   assert.strictEqual((await fetch(base + "/", { method: "POST" })).status, 405);
+});
+
+test("takes products from the backend, falls back to its own list when it is down", async (t) => {
+  await new Promise((resolve) => server.listen(0, resolve));
+  t.after(() => server.close());
+  const url = `http://localhost:${server.address().port}/api/products`;
+
+  const down = await fetch(url);
+  assert.strictEqual(down.headers.get("x-served-by"), "sample-shop");
+  assert.ok((await down.json()).length > 1);
+
+  await new Promise((resolve) => backend.listen(39123, resolve));
+  t.after(() => backend.close());
+  const up = await fetch(url);
+  assert.strictEqual(up.headers.get("x-served-by"), "shop-api");
+  assert.deepStrictEqual((await up.json()).map((p) => p.name), ["VM"]);
 });

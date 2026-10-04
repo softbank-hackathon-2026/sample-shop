@@ -42,7 +42,7 @@ function page() {
   <p>Freesia로 배포된 쇼핑몰 서비스입니다. 오늘의 추천: 향기 캔들 🕯️</p>
 </header>
 <ul id="products"><li>상품을 불러오는 중입니다.</li></ul>
-<footer>sample-shop · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
+<footer>sample-shop v1 · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
 <script>
   const won = (n) => n.toLocaleString("ko-KR") + "원";
   const list = document.getElementById("products");

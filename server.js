@@ -24,15 +24,16 @@ function page() {
        display: flex; flex-direction: column; gap: 8px; }
   .emoji { font-size: 40px; }
   .price { color: #3f7a4f; font-weight: 700; }
+  .empty { grid-column: 1 / -1; text-align: center; }
   footer { text-align: center; padding: 24px; font-size: 13px; color: #8a948b; }
 </style>
 </head>
 <body>
 <header>
   <h1>🌼 Freesia Shop</h1>
-  <p>Freesia로 배포된 쇼핑몰 서비스입니다. 오늘의 추천: 향기 캔들 🕯️</p>
+  <p>Freesia로 배포된 쇼핑몰 서비스입니다.</p>
 </header>
-<ul id="products"><li>상품을 불러오는 중입니다.</li></ul>
+<ul id="products"><li class="empty">상품을 불러오는 중입니다.</li></ul>
 <footer>sample-shop v1 · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
 <script>
   const won = (n) => n.toLocaleString("ko-KR") + "원";
@@ -55,7 +56,7 @@ function page() {
         return li;
       }));
     })
-    .catch(() => { list.innerHTML = "<li>아직 연결된 백엔드가 없습니다. 상품 정보가 없습니다.</li>"; });
+    .catch(() => { list.innerHTML = '<li class="empty">아직 연결된 백엔드가 없습니다. 상품 정보가 없습니다.</li>'; });
 </script>
 </body>
 </html>`;

@@ -12,6 +12,8 @@ test("serves the shop page, health check and product list", async (t) => {
   assert.strictEqual(home.status, 200);
   const html = await home.text();
   assert.match(html, /Freesia Shop/);
+  // The page script must parse; a syntax error leaves the page stuck on "loading".
+  new Function(html.match(/<script>([\s\S]*)<\/script>/)[1]);
   // The browser loads the products, so a shared load balancer can send /api/* to shop-api instead.
   assert.match(html, /fetch\("\/api\/products"\)/);
 

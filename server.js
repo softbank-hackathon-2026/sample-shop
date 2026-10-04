@@ -3,7 +3,7 @@ const http = require("node:http");
 
 const PORT = Number(process.env.PORT) || 3000;
 
-// The page loads products from /api/products in the browser; this server fetches them from the on-prem shop-api.
+// The page loads products from /api/products in the browser; in v2 this server answers with its own list.
 // Behind a shared load balancer that sends /api/* to shop-api, the same page shows shop-api's data.
 // X-Served-By tells the page which server answered.
 function page() {
@@ -14,7 +14,7 @@ function page() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Freesia Shop</title>
 <style>
-  body { margin: 0; font-family: system-ui, sans-serif; background: #fbf8ef; color: #2c3a2f; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #e9f1fb; color: #2c3a2f; }
   header { padding: 32px 24px 8px; text-align: center; }
   h1 { margin: 0; font-size: 28px; }
   p { color: #5d6b60; }
@@ -34,7 +34,7 @@ function page() {
   <p>Freesia로 배포된 쇼핑몰 서비스입니다.</p>
 </header>
 <ul id="products"><li class="empty">상품을 불러오는 중입니다.</li></ul>
-<footer>sample-shop v1 · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
+<footer>sample-shop v2 · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
 <script>
   const won = (n) => n.toLocaleString("ko-KR") + "원";
   const list = document.getElementById("products");
@@ -91,26 +91,15 @@ function onPremConfig() {
   };
 }
 
-// The demo's on-prem shop-api, called directly at the VM's private address. Used when no ONPREM_* settings
-// are given, which is the case for a platform deploy.
-const DEFAULT_ONPREM = { url: "http://10.0.1.152:8080/api/health", headers: {} };
-
-// Products from shop-api on the on-prem VM: same host and Access headers as ONPREM_API_URL, path /api/products.
-// Throws when on-prem does not answer; the shop has no products of its own.
-async function onPremProducts() {
-  let config = onPremConfig();
-  if (config.error === "onprem_not_configured") config = DEFAULT_ONPREM;
-  if (config.error) throw new Error(config.error);
-  const upstream = await fetch(new URL("/api/products", config.url), {
-    headers: config.headers,
-    redirect: "manual",
-    signal: AbortSignal.timeout(3000),
-  });
-  if (!upstream.ok) throw new Error(`onprem_status_${upstream.status}`);
-  const list = await upstream.json();
-  if (!Array.isArray(list)) throw new Error("onprem_bad_products");
-  return list;
-}
+// v2 serves its own product list.
+const products = [
+  { id: 1, name: "프리지아 꽃다발", price: 32000, emoji: "💐" },
+  { id: 2, name: "드라이플라워 화병", price: 18000, emoji: "🏺" },
+  { id: 3, name: "꽃 일러스트 엽서 세트", price: 6000, emoji: "💌" },
+  { id: 4, name: "향기 캔들", price: 21000, emoji: "🕯️" },
+  { id: 5, name: "미니 화분", price: 12000, emoji: "🪴" },
+  { id: 6, name: "선물 포장", price: 3000, emoji: "🎁" },
+];
 
 async function checkOnPrem() {
   const config = onPremConfig();
@@ -161,16 +150,9 @@ async function handle(req, res) {
       "Cache-Control": "no-store",
     }).end(JSON.stringify(body));
   } else if (path === "/api/products") {
-    // The page footer shows X-Served-By, so the demo can tell the list came from the VM.
-    // No backend, no products: the page then says no backend is connected yet.
-    try {
-      const list = await onPremProducts();
-      res
-        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": "shop-api (on-prem)" })
-        .end(JSON.stringify(list));
-    } catch {
-      res.writeHead(502, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "backend_unavailable" }));
-    }
+    res
+      .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": "sample-shop" })
+      .end(JSON.stringify(products));
   } else {
     res.writeHead(404, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "not_found" }));
   }

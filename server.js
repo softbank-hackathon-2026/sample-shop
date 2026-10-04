@@ -3,16 +3,7 @@ const http = require("node:http");
 
 const PORT = Number(process.env.PORT) || 3000;
 
-const products = [
-  { id: 1, name: "프리지아 꽃다발", price: 32000, emoji: "💐" },
-  { id: 2, name: "드라이플라워 화병", price: 18000, emoji: "🏺" },
-  { id: 3, name: "꽃 일러스트 엽서 세트", price: 6000, emoji: "💌" },
-  { id: 4, name: "향기 캔들", price: 21000, emoji: "🕯️" },
-  { id: 5, name: "미니 화분", price: 12000, emoji: "🪴" },
-  { id: 6, name: "선물 포장", price: 3000, emoji: "🎁" },
-];
-
-// The page loads products from /api/products in the browser. Deployed alone, that is this server.
+// The page loads products from /api/products in the browser; this server fetches them from the on-prem shop-api.
 // Behind a shared load balancer that sends /api/* to shop-api, the same page shows shop-api's data.
 // X-Served-By tells the page which server answered.
 function page() {
@@ -23,7 +14,7 @@ function page() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Freesia Shop</title>
 <style>
-  body { margin: 0; font-family: system-ui, sans-serif; background: #e9f1fb; color: #2c3a2f; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #fbf8ef; color: #2c3a2f; }
   header { padding: 32px 24px 8px; text-align: center; }
   h1 { margin: 0; font-size: 28px; }
   p { color: #5d6b60; }
@@ -42,7 +33,7 @@ function page() {
   <p>Freesia로 배포된 쇼핑몰 서비스입니다. 오늘의 추천: 향기 캔들 🕯️</p>
 </header>
 <ul id="products"><li>상품을 불러오는 중입니다.</li></ul>
-<footer>sample-shop v2 · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
+<footer>sample-shop v1 · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
 <script>
   const won = (n) => n.toLocaleString("ko-KR") + "원";
   const list = document.getElementById("products");
@@ -64,7 +55,7 @@ function page() {
         return li;
       }));
     })
-    .catch(() => { list.innerHTML = "<li>상품 정보를 불러오지 못했습니다.</li>"; });
+    .catch(() => { list.innerHTML = "<li>아직 연결된 백엔드가 없습니다. 상품 정보가 없습니다.</li>"; });
 </script>
 </body>
 </html>`;
@@ -99,12 +90,12 @@ function onPremConfig() {
   };
 }
 
-// The demo's on-prem shop-api. Its /api/* path is open without a key (Cloudflare Access Bypass), so a redeploy
-// from the platform, which sets no environment variables, still reaches it.
-const DEFAULT_ONPREM = { url: "https://vpn.howon.me/api/health", headers: {} };
+// The demo's on-prem shop-api, called directly at the VM's private address. Used when no ONPREM_* settings
+// are given, which is the case for a platform deploy.
+const DEFAULT_ONPREM = { url: "http://10.0.1.152:8080/api/health", headers: {} };
 
 // Products from shop-api on the on-prem VM: same host and Access headers as ONPREM_API_URL, path /api/products.
-// Throws when on-prem does not answer, so the caller serves the local list.
+// Throws when on-prem does not answer; the shop has no products of its own.
 async function onPremProducts() {
   let config = onPremConfig();
   if (config.error === "onprem_not_configured") config = DEFAULT_ONPREM;
@@ -169,14 +160,16 @@ async function handle(req, res) {
       "Cache-Control": "no-store",
     }).end(JSON.stringify(body));
   } else if (path === "/api/products") {
-    // The page footer shows X-Served-By, so the demo can tell whether the list came from the VM.
-    const [list, servedBy] = await onPremProducts().then(
-      (list) => [list, "shop-api (on-prem)"],
-      () => [products, "sample-shop"],
-    );
-    res
-      .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": servedBy })
-      .end(JSON.stringify(list));
+    // The page footer shows X-Served-By, so the demo can tell the list came from the VM.
+    // No backend, no products: the page then says no backend is connected yet.
+    try {
+      const list = await onPremProducts();
+      res
+        .writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Served-By": "shop-api (on-prem)" })
+        .end(JSON.stringify(list));
+    } catch {
+      res.writeHead(502, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "backend_unavailable" }));
+    }
   } else {
     res.writeHead(404, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "not_found" }));
   }

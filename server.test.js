@@ -18,7 +18,7 @@ test("serves the shop page, health check and product list", async (t) => {
   const health = await fetch(base + "/health");
   assert.deepStrictEqual([health.status, await health.json()], [200, { status: "ok" }]);
 
-  // On-prem unreachable: the shop's own list. (Without settings it would call the real demo VM.)
+  // On-prem unreachable: no products of its own. (Without settings it would call the real demo VM.)
   process.env.ONPREM_CONNECTION_MODE = "private";
   process.env.ONPREM_API_URL = "http://127.0.0.1:9/api/health";
   t.after(() => {
@@ -26,15 +26,14 @@ test("serves the shop page, health check and product list", async (t) => {
     delete process.env.ONPREM_API_URL;
   });
   const res = await fetch(base + "/api/products");
-  assert.strictEqual(res.headers.get("x-served-by"), "sample-shop");
-  const products = await res.json();
-  assert.ok(products.length > 0 && products.every((p) => p.name && p.price && p.emoji));
+  assert.deepStrictEqual([res.status, await res.json()], [502, { error: "backend_unavailable" }]);
+  assert.match(html, /아직 연결된 백엔드가 없습니다/);
 
   assert.strictEqual((await fetch(base + "/nope")).status, 404);
   assert.strictEqual((await fetch(base + "/", { method: "POST" })).status, 405);
 });
 
-test("takes products from on-prem shop-api, falls back to its own list when it is down", async (t) => {
+test("takes products from on-prem shop-api, has none when it is down", async (t) => {
   // Stand-in for shop-api on the VM, reached in private mode (access mode needs HTTPS).
   const backend = http.createServer((req, res) =>
     req.url === "/api/products"
@@ -58,6 +57,5 @@ test("takes products from on-prem shop-api, falls back to its own list when it i
 
   process.env.ONPREM_API_URL = "http://127.0.0.1:9/api/health"; // nothing listens there
   const down = await fetch(url);
-  assert.strictEqual(down.headers.get("x-served-by"), "sample-shop");
-  assert.ok((await down.json()).length > 1);
+  assert.strictEqual(down.status, 502);
 });

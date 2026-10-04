@@ -23,7 +23,7 @@ function page() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Freesia Shop</title>
 <style>
-  body { margin: 0; font-family: system-ui, sans-serif; background: #fbf8ef; color: #2c3a2f; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #e9f1fb; color: #2c3a2f; }
   header { padding: 32px 24px 8px; text-align: center; }
   h1 { margin: 0; font-size: 28px; }
   p { color: #5d6b60; }
@@ -42,7 +42,7 @@ function page() {
   <p>Freesia로 배포된 쇼핑몰 서비스입니다. 오늘의 추천: 향기 캔들 🕯️</p>
 </header>
 <ul id="products"><li>상품을 불러오는 중입니다.</li></ul>
-<footer>sample-shop v1 · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
+<footer>sample-shop v2 · Node.js ${process.version} · 상품 정보: <span id="source">-</span></footer>
 <script>
   const won = (n) => n.toLocaleString("ko-KR") + "원";
   const list = document.getElementById("products");
@@ -99,10 +99,15 @@ function onPremConfig() {
   };
 }
 
+// The demo's on-prem shop-api. Its /api/* path is open without a key (Cloudflare Access Bypass), so a redeploy
+// from the platform, which sets no environment variables, still reaches it.
+const DEFAULT_ONPREM = { url: "https://vpn.howon.me/api/health", headers: {} };
+
 // Products from shop-api on the on-prem VM: same host and Access headers as ONPREM_API_URL, path /api/products.
-// Throws when on-prem is not configured or does not answer, so the caller serves the local list.
+// Throws when on-prem does not answer, so the caller serves the local list.
 async function onPremProducts() {
-  const config = onPremConfig();
+  let config = onPremConfig();
+  if (config.error === "onprem_not_configured") config = DEFAULT_ONPREM;
   if (config.error) throw new Error(config.error);
   const upstream = await fetch(new URL("/api/products", config.url), {
     headers: config.headers,

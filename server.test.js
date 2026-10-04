@@ -18,7 +18,13 @@ test("serves the shop page, health check and product list", async (t) => {
   const health = await fetch(base + "/health");
   assert.deepStrictEqual([health.status, await health.json()], [200, { status: "ok" }]);
 
-  // No on-prem settings: the shop's own list.
+  // On-prem unreachable: the shop's own list. (Without settings it would call the real demo VM.)
+  process.env.ONPREM_CONNECTION_MODE = "private";
+  process.env.ONPREM_API_URL = "http://127.0.0.1:9/api/health";
+  t.after(() => {
+    delete process.env.ONPREM_CONNECTION_MODE;
+    delete process.env.ONPREM_API_URL;
+  });
   const res = await fetch(base + "/api/products");
   assert.strictEqual(res.headers.get("x-served-by"), "sample-shop");
   const products = await res.json();
